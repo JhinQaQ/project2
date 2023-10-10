@@ -1,0 +1,4 @@
+edge(1,2)
+edge(2,3)
+transitiveEdge(X,Y) :- edge(X,Y)
+transitiveEdge(X,Y) :- edge(X,Z), transitiveEdge(Z,Y)
