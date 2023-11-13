@@ -10,49 +10,38 @@ def parse_line(line):
         return relation, args
     return None
 
-def evaluate_rules(facts, rules):
+def evaluate_rules(facts):
     """Evaluate rules to produce new facts."""
     new_facts = set()
-    
-    for rule in rules:
-        head, body = rule
-        body_relations, body_args = zip(*body)
-        
-        # Cartesian product of possible argument combinations
-        combos = [facts.get(rel, []) for rel in body_relations]
-        for values in product(*combos):
-            bindings = {}
-            valid_combination = True
-            for arg, value, expected_arg in zip(body_args, values, head[1]):
-                if expected_arg.isupper():  # variable
-                    if expected_arg in bindings:
-                        if bindings[expected_arg] != value:
-                            valid_combination = False
-                            break
-                    else:
-                        bindings[expected_arg] = value
-                else:  # constant
-                    if expected_arg != value:
-                        valid_combination = False
-                        break
-            
-            if valid_combination:
-                new_fact_args = tuple(bindings.get(arg, arg) for arg in head[1])
-                new_facts.add((head[0], new_fact_args))
-                
-    return new_facts
 
-def product(*args):
-    """A helper function to get Cartesian product of input lists."""
-    if not args:
-        return [()]
-    return [(a,) + rest for a in args[0] for rest in product(*args[1:])]
+    # Initialize path facts with edge facts
+    facts['path'] = set(facts.get('edge', []))
+
+    # Flag to track if any new facts are added in each iteration
+    added_new_fact = True
+
+    while added_new_fact:
+        added_new_fact = False
+
+        # For each path(x, y) and edge(y, z), if path(x, z) is not in facts, add it
+        for (x, y) in facts['path']:
+            for (y_prime, z) in facts.get('edge', []):
+                if y == y_prime and (x, z) not in facts['path']:
+                    new_facts.add((x, z))
+                    added_new_fact = True
+
+        # Update the path facts with new facts
+        for new_fact in new_facts:
+            facts['path'].add(new_fact)
+
+        new_facts.clear()
+
+    return facts
 
 def naive_sdl_interpreter(filename):
     """Naive interpreter for .sdl format."""
     facts = {}
-    rules = []
-    
+
     # Parse the .sdl input from file
     with open(filename, 'r') as f:
         for line in f.readlines():
@@ -60,122 +49,20 @@ def naive_sdl_interpreter(filename):
             if not parsed:
                 continue
             relation, args = parsed
-            if ':-' in ','.join(args):  # Ensure ":-" is present in the arguments
-                head_relation, remaining = relation, ','.join(args)
-                head_args = tuple(re.findall(r'\w+', remaining.split(':-')[0]))
-                head = (head_relation, head_args)
-                body_str = remaining.split(':-')[1]
-                body = [parse_line(part.strip()) for part in body_str.split(',')]
-                rules.append((head, body))
-            else:  # Fact
-                if relation not in facts:
-                    facts[relation] = set()
-                facts[relation].add(args)
-    
-    # Naive evaluation
-    while True:
-        new_facts = evaluate_rules(facts, rules)
-        if not any(((rel, args) not in facts.get(rel, set())) for rel, args in new_facts):
-            break
-        for rel, args in new_facts:
-            if rel not in facts:
-                facts[rel] = set()
-            facts[rel].add(args)
-    
-    # Write to .tsv files
-    for relation, tuples in facts.items():
-        with open(f'{relation}.tsv', 'w') as f:
-            for t in tuples:
-                f.write('\t'.join(map(str, t)) + '\n')
+            if relation not in facts:
+                facts[relation] = set()
+            facts[relation].add(args)
 
-def semi_naive_evaluate_rules(facts, delta, rules):
-    """Semi-naive evaluation of rules."""
-    new_facts = set()
-    new_delta = {}
-    
-    for rule in rules:
-        head, body = rule
-        body_relations, body_args = zip(*body)
-        
-        combos = [delta.get(rel, facts.get(rel, [])) for rel in body_relations]
-        for values in product(*combos):
-            bindings = {}
-            valid_combination = True
-            for arg, value, expected_arg in zip(body_args, values, head[1]):
-                if expected_arg.isupper():  # variable
-                    if expected_arg in bindings:
-                        if bindings[expected_arg] != value:
-                            valid_combination = False
-                            break
-                    else:
-                        bindings[expected_arg] = value
-                else:  # constant
-                    if expected_arg != value:
-                        valid_combination = False
-                        break
-            
-            if valid_combination:
-                new_fact_args = tuple(bindings.get(arg, arg) for arg in head[1])
-                new_fact = (head[0], new_fact_args)
-                new_facts.add(new_fact)
-                if new_fact not in facts.get(head[0], set()):
-                    if head[0] not in new_delta:
-                        new_delta[head[0]] = set()
-                    new_delta[head[0]].add(new_fact_args)
-    
-    return new_facts, new_delta
+    # Apply rules to derive new facts
+    facts = evaluate_rules(facts)
 
-def semi_naive_sdl_interpreter(filename):
-    """Semi-naive interpreter for .sdl format."""
-    facts = {}
-    rules = []
-    
-    # Parsing logic remains unchanged
-    with open(filename, 'r') as f:
-        for line in f.readlines():
-            parsed = parse_line(line.strip())
-            if not parsed:
-                continue
-            relation, args = parsed
-            if ':-' in ','.join(args):  # Ensure ":-" is present in the arguments
-                head_relation, remaining = relation, ','.join(args)
-                head_args = tuple(re.findall(r'\w+', remaining.split(':-')[0]))
-                head = (head_relation, head_args)
-                body_str = remaining.split(':-')[1]
-                body = [parse_line(part.strip()) for part in body_str.split(',')]
-                rules.append((head, body))
-            else:  # Fact
-                if relation not in facts:
-                    facts[relation] = set()
-                facts[relation].add(args)
-    # Initial delta is the same as facts
-    delta = {relation: set(tuples) for relation, tuples in facts.items()}
-    
-    while delta:
-        new_facts, delta = semi_naive_evaluate_rules(facts, delta, rules)
-        for rel, args in new_facts:
-            if rel not in facts:
-                facts[rel] = set()
-            facts[rel].add(args)
-    
-    for relation, tuples in facts.items():
-        with open(f'{relation}.tsv', 'w') as f:
-            for t in tuples:
-                f.write('\t'.join(map(str, t)) + '\n')
-
+    # Write path relation to a CSV file
+    with open('path.csv', 'w') as f:
+        for x, y in sorted(facts['path'], key=lambda pair: (int(pair[0]), int(pair[1]))):
+            f.write(f'{x}\t{y}\n')
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python3 datalog.py <filename>.sdl")
         sys.exit(1)
     naive_sdl_interpreter(sys.argv[1])
-    # semi_naive_sdl_interpreter(sys.argv[1])
-
-
-# # Example usage:
-# sdl_input = """
-# edge(1,2)
-# edge(2,3)
-# transitiveEdge(X,Y) :- edge(X,Y)
-# transitiveEdge(X,Y) :- edge(X,Z), transitiveEdge(Z,Y)
-# """
