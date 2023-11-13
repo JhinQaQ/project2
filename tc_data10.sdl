@@ -1,0 +1,13 @@
+path(x,y) :- edge(x,y)
+path(x,z) :- path(x,y) edge(y,z)
+
+edge(1,2)
+edge(1,5)
+edge(1,6)
+edge(2,3)
+edge(2,6)
+edge(3,4)
+edge(3,7)
+edge(4,5)
+edge(4,6)
+edge(5,6)
